@@ -1,12 +1,15 @@
 // Step 1: public enquiry form.
 import { useEffect, useState } from 'react';
-import { api } from '../api.js';
+import { Link, useNavigate } from 'react-router-dom';
+import { api, session } from '../api.js';
 import { Field, Notice, PublicShell } from '../ui.jsx';
 
-const EMPTY = { full_name: '', email: '', phone: '', address: '', program_id: '', message: '', consent: false };
+const EMPTY = { full_name: '', email: '', phone: '', address: '', program_id: '', message: '', password: '', confirm: '', consent: false };
 
 export default function Enquiry() {
+  const navigate = useNavigate();
   const [programs, setPrograms] = useState([]);
+  const [hasAccount, setHasAccount] = useState(false);
   const [form, setForm] = useState(EMPTY);
   const [errors, setErrors] = useState({});
   const [failure, setFailure] = useState('');
@@ -25,14 +28,31 @@ export default function Enquiry() {
 
   const submit = async (event) => {
     event.preventDefault();
-    setBusy(true);
     setFailure('');
+    setHasAccount(false);
+    if (!form.password) {
+      setErrors((e) => ({ ...e, password: 'Choose a password for your account.' }));
+      return;
+    }
+    if (form.password !== form.confirm) {
+      setErrors((e) => ({ ...e, confirm: 'The two passwords do not match.' }));
+      return;
+    }
+    setBusy(true);
     try {
-      const res = await api('/enquiries', { method: 'POST', body: form });
+      const { confirm, ...body } = form;
+      const res = await api('/enquiries', { method: 'POST', body });
+      if (res.token) {
+        // Account created with the enquiry: go straight to the portal.
+        session.set('student', { token: res.token, email: res.email });
+        navigate('/portal');
+        return;
+      }
       setDone(res.message);
     } catch (err) {
       setErrors(err.errors);
-      setFailure(err.message);
+      if (err.status === 409) setHasAccount(true);
+      else setFailure(err.message);
     } finally {
       setBusy(false);
     }
@@ -54,9 +74,12 @@ export default function Enquiry() {
   return (
     <PublicShell narrow>
       <h1>Enquire about a program</h1>
-      <p className="lead">Tell us what you are interested in and we will email you the course brochure and next steps.</p>
+      <p className="lead">Tell us what you are interested in and create your account to continue online.</p>
       <form className="card" onSubmit={submit} noValidate>
         {failure && <Notice kind="error">{failure}</Notice>}
+        {hasAccount && (
+          <Notice kind="warn">You already have an account with this email. <Link to="/login">Log in</Link> to continue.</Notice>
+        )}
         <Field label="Full name" name="full_name" required error={errors.full_name}>
           <input id="full_name" value={form.full_name} onChange={set('full_name')} autoComplete="name" />
         </Field>
@@ -80,6 +103,15 @@ export default function Enquiry() {
         <Field label="Message" name="message" error={errors.message} hint="Optional">
           <textarea id="message" rows="4" value={form.message} onChange={set('message')} />
         </Field>
+        <h3>Create your account</h3>
+        <div className="grid2">
+          <Field label="Password" name="password" required error={errors.password} hint="At least 10 characters">
+            <input id="password" type="password" value={form.password} onChange={set('password')} autoComplete="new-password" />
+          </Field>
+          <Field label="Confirm password" name="confirm" required error={errors.confirm}>
+            <input id="confirm" type="password" value={form.confirm} onChange={set('confirm')} autoComplete="new-password" />
+          </Field>
+        </div>
         <div className={`field check${errors.consent ? ' has-error' : ''}`}>
           <label>
             <input type="checkbox" checked={form.consent} onChange={set('consent')} />
@@ -87,7 +119,7 @@ export default function Enquiry() {
           </label>
           {errors.consent && <p className="error" role="alert">{errors.consent}</p>}
         </div>
-        <button type="submit" disabled={busy}>{busy ? 'Sending…' : 'Send enquiry'}</button>
+        <button type="submit" disabled={busy}>{busy ? 'Sending…' : 'Send enquiry and create account'}</button>
       </form>
     </PublicShell>
   );

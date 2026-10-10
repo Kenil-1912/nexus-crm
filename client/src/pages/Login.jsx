@@ -1,6 +1,6 @@
 // Login for students and staff (same form, different endpoint and destination).
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api, session } from '../api.js';
 import { Field, Notice, PublicShell } from '../ui.jsx';
 
@@ -39,7 +39,7 @@ export default function Login({ kind }) {
           <input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
         </Field>
         <button type="submit" disabled={busy}>{busy ? 'Logging in…' : 'Log in'}</button>
-        {!isStaff && <p className="muted small">No account yet? Use the link in your brochure email to create one.</p>}
+        {!isStaff && <p className="muted small">No account yet? <Link to="/">Send an enquiry</Link> to create one.</p>}
       </form>
     </PublicShell>
   );

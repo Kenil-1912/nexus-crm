@@ -31,7 +31,7 @@ router.get('/programs', wrap(async (_req, res) => {
 }));
 
 // Step 1: enquiry. Step 2: brochure email with a sign-up link.
-async function saveEnquiry(value) {
+async function saveEnquiry(value, passwordHash) {
   return withTransaction(async (client) => {
     const program = (await client.query(
       'SELECT id, name, brochure_url FROM program WHERE id = $1 AND is_active', [value.program_id],
@@ -42,6 +42,12 @@ async function saveEnquiry(value) {
       'SELECT * FROM prospect WHERE lower(email) = $1 FOR UPDATE', [value.email],
     )).rows[0];
 
+    if (prospect?.user_id && passwordHash) {
+      // Never attach a new password to an existing account.
+      throw new HttpError(409, 'You already have an account with this email. Log in to continue.', { code: 'account_exists' });
+    }
+
+    let user = null;
     if (!prospect) {
       // Same phone under a different email: keep both, flag for staff.
       const samePhone = (await client.query(
@@ -64,6 +70,19 @@ async function saveEnquiry(value) {
         [prospect.id],
       );
       await audit(client, { prospectId: prospect.id, actorType: 'system', action: 'Prospect created' });
+
+      // Sign-up with the enquiry: only for a brand-new email. An email that
+      // already has an enquiry but no account still needs the emailed link,
+      // so nobody can claim someone else's record by typing their address.
+      if (passwordHash) {
+        user = (await client.query(
+          'INSERT INTO student_user (email, password_hash, last_login_at) VALUES ($1, $2, now()) RETURNING id, email',
+          [value.email, passwordHash],
+        )).rows[0];
+        await client.query('UPDATE prospect SET user_id = $2 WHERE id = $1', [prospect.id, user.id]);
+        prospect.user_id = user.id;
+        await audit(client, { prospectId: prospect.id, actorType: 'student', actorId: user.id, action: 'Account created with enquiry' });
+      }
     } else if (prospect.stage === 'Closed') {
       // A closed prospect enquiring again restarts the flow.
       await changeStage(client, prospect.id, 'Enquiry', { byType: 'system' });
@@ -81,25 +100,32 @@ async function saveEnquiry(value) {
     await audit(client, { prospectId: prospect.id, actorType: 'system', action: 'Enquiry received', detail: { program: program.name } });
 
     const token = prospect.user_id ? null : await createSignupToken(client, prospect.id);
-    return { prospect, program, token };
+    return { prospect, program, token, user };
   });
 }
 
 router.post('/enquiries', wrap(async (req, res) => {
   const { errors, value } = validateEnquiry(req.body);
+  // The password is optional for the API: with one, the enquiry also creates the account.
+  const wantsAccount = req.body?.password !== undefined && req.body.password !== '';
+  if (wantsAccount) {
+    const passwordError = validatePassword(req.body.password);
+    if (passwordError) errors.password = passwordError;
+  }
   if (Object.keys(errors).length) throw new HttpError(422, 'Please correct the highlighted fields.', { errors });
+  const passwordHash = wantsAccount ? await bcrypt.hash(req.body.password, 10) : null;
 
   let saved;
   try {
-    saved = await saveEnquiry(value);
+    saved = await saveEnquiry(value, passwordHash);
   } catch (err) {
     // Two enquiries with the same new email at the same moment: the second one
     // hits the unique index. Retry once; it will now find the prospect.
     if (err.code !== '23505') throw err;
-    saved = await saveEnquiry(value);
+    saved = await saveEnquiry(value, passwordHash);
   }
 
-  const { prospect, program, token } = saved;
+  const { prospect, program, token, user } = saved;
   const data = { name: prospect.full_name, program: program.name, brochureUrl: program.brochure_url, token };
   const status = await sendEmail({
     prospectId: prospect.id,
@@ -111,8 +137,15 @@ router.post('/enquiries', wrap(async (req, res) => {
       createTask(client, { prospectId: prospect.id, staffId: prospect.assigned_staff_id, type: 'Brochure email failed', workingDays: 1 }));
   }
 
-  // Same reply whether or not the email was already known.
-  res.status(201).json({ message: 'Thank you for your enquiry. We have emailed you the course brochure and next steps.' });
+  if (user) {
+    // Account created: log the student in straight away.
+    return res.status(201).json({
+      message: 'Thank you for your enquiry. Your account is ready.',
+      token: signToken({ sub: user.id, type: 'student' }),
+      email: user.email,
+    });
+  }
+  return res.status(201).json({ message: 'Thank you for your enquiry. We have emailed you the course brochure and next steps.' });
 }));
 
 // Step 3a: check a sign-up link before showing the form.

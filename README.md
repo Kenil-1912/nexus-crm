@@ -48,11 +48,13 @@ These are demo accounts created by `npm run db:reset`. Change them before any re
 
 ## Trying the flow
 
-1. Open http://localhost:5173 and send an enquiry.
-2. Log in as staff at `/staff`, open **Email log**, and copy the sign-up link from the brochure email.
-   (With no mail server configured, emails are recorded there and not sent. Set `SMTP_HOST` in `.env` to send real email.)
-3. Open the link, set a password, and submit the academic and language form.
-4. A strong application moves to **Qualified** automatically. A borderline or failing one creates a task for the assigned recruiter, who approves or rejects it from the prospect page.
+1. Open http://localhost:5173, fill in the enquiry form and choose a password. This creates the student account and opens the portal.
+2. Submit the academic and language form.
+3. A strong application moves to **Qualified** automatically. A borderline or failing one creates a task for the assigned recruiter, who approves or rejects it from the prospect page.
+
+Emails (brochure, qualified, not eligible) are recorded on the staff **Email log** page and not sent until you set `SMTP_HOST` in `server/.env`.
+
+Because the account is created without an emailed link, the email address is not verified. Add an email confirmation step once a mail server is set up.
 
 ## Tests
 
@@ -78,4 +80,4 @@ npm test        # resets the database, then runs the end-to-end API tests
 - Steps 5 to 7: application form, document upload and verification, offer letter, enrolment
 - Reminder and auto-close jobs (no sign-up after 3 days, and so on)
 - Pipeline leak reports (the data is already recorded in `stage_history`)
-- Login rate limiting and password reset
+- Email verification, login rate limiting and password reset

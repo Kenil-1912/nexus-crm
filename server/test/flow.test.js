@@ -121,6 +121,35 @@ test('sign-up: bad token, short password, then success, and the link works only 
   assert.deepEqual(wrong.body, unknown.body);
 });
 
+test('enquiry with a password: creates the account and logs the student in', async () => {
+  const body = enquiry({ email: 'direct@example.com', phone: '0499000111', password: 'correct-horse-battery' });
+  assert.equal((await api('POST', '/api/enquiries', { ...body, password: 'short' })).status, 422);
+  assert.equal((await query(`SELECT count(*)::int AS n FROM prospect WHERE email = 'direct@example.com'`)).rows[0].n, 0);
+
+  const res = await api('POST', '/api/enquiries', body);
+  assert.equal(res.status, 201);
+  const me = await api('GET', '/api/student/me', null, res.body.token);
+  assert.equal(me.body.prospect.stage, 'Enquiry');
+  assert.equal(me.body.prospect.email, 'direct@example.com');
+  const login = await api('POST', '/api/auth/student/login', { email: 'direct@example.com', password: 'correct-horse-battery' });
+  assert.equal(login.status, 200);
+
+  // The same email again cannot set a new password on the existing account.
+  const again = await api('POST', '/api/enquiries', { ...body, password: 'another-password-1' });
+  assert.equal(again.status, 409);
+  assert.equal(again.body.token, undefined);
+  assert.equal((await api('POST', '/api/auth/student/login', { email: 'direct@example.com', password: 'another-password-1' })).status, 401);
+});
+
+test('enquiry with a password: an email with an earlier enquiry but no account is not claimed', async () => {
+  await api('POST', '/api/enquiries', enquiry({ email: 'earlier@example.com', phone: '0499000222' }));
+  const res = await api('POST', '/api/enquiries', enquiry({ email: 'earlier@example.com', phone: '0499000222', password: 'correct-horse-battery' }));
+  assert.equal(res.status, 201);
+  assert.equal(res.body.token, undefined);
+  assert.equal((await query(`SELECT user_id FROM prospect WHERE email = 'earlier@example.com'`)).rows[0].user_id, null);
+  assert.ok(await lastSignupToken('earlier@example.com'));
+});
+
 test('access: student and staff areas need the right kind of login', async () => {
   assert.equal((await api('GET', '/api/student/me')).status, 401);
   assert.equal((await api('GET', '/api/staff/prospects')).status, 401);
@@ -221,4 +250,5 @@ test('staff summary counts match the pipeline', async () => {
   const total = res.body.stages.reduce((sum, s) => sum + s.count, 0);
   assert.equal(total, (await query('SELECT count(*)::int AS n FROM prospect')).rows[0].n);
   assert.equal(res.body.stages.find((s) => s.stage === 'Qualified').count, 2);
+  assert.ok(res.body.stages.find((s) => s.stage === 'Enquiry').count >= 1);
 });
