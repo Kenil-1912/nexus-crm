@@ -76,3 +76,32 @@ export async function createTask(client, { prospectId, staffId, type, workingDay
     [prospectId, staffId, type, dueInWorkingDays(workingDays)],
   );
 }
+
+/** Mark a prospect's open tasks as done (all of them, or only the given types). */
+export async function completeTasks(client, prospectId, types = null) {
+  await client.query(
+    `UPDATE task SET status = 'Done', completed_at = now()
+     WHERE prospect_id = $1 AND status = 'Open' AND ($2::text[] IS NULL OR type = ANY($2))`,
+    [prospectId, types],
+  );
+}
+
+/**
+ * Close a record: stage to Closed with a reason, any live application is
+ * marked Withdrawn (a Rejected one keeps its status), and open tasks are cleared.
+ */
+export async function closeProspect(client, prospectId, closedReason, by) {
+  await changeStage(client, prospectId, 'Closed', { ...by, closedReason });
+  await client.query(
+    `UPDATE application SET status = 'Withdrawn' WHERE prospect_id = $1 AND status NOT IN ('Rejected', 'Withdrawn')`,
+    [prospectId],
+  );
+  await completeTasks(client, prospectId);
+}
+
+/** Create a task unless an open one of the same type already exists. */
+export async function ensureTask(client, { prospectId, staffId, type, workingDays }) {
+  const { rows } = await client.query(
+    `SELECT 1 FROM task WHERE prospect_id = $1 AND type = $2 AND status = 'Open'`, [prospectId, type]);
+  if (!rows.length) await createTask(client, { prospectId, staffId, type, workingDays });
+}

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, formatDate, formatDateTime, session } from '../api.js';
 import { Field, Notice, StaffShell, StageBadge } from '../ui.jsx';
+import StaffApplication from './StaffApplication.jsx';
 
 const LEVELS = ['', 'Year 12 or equivalent', 'Certificate', 'Diploma', "Bachelor's degree", "Master's degree or higher"];
 const RESULT_CLASS = { Pass: 'green', Review: 'amber', Fail: 'red' };
@@ -16,6 +17,21 @@ export default function ProspectDetail() {
   const [failure, setFailure] = useState('');
   const [noteError, setNoteError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [closeReason, setCloseReason] = useState('Withdrawn');
+
+  const closeRecord = async () => {
+    if (!window.confirm(`Close this record as "${closeReason}"?`)) return;
+    setBusy(true);
+    setFailure('');
+    try {
+      await api(`/staff/prospects/${id}/close`, { method: 'POST', body: { reason: closeReason }, kind: 'staff' });
+    } catch (err) {
+      setFailure(err.message);
+    } finally {
+      await load();
+      setBusy(false);
+    }
+  };
 
   const load = () => api(`/staff/prospects/${id}`, { kind: 'staff' }).then(setData).catch((err) => setFailure(err.message));
   useEffect(() => { load(); }, [id]);
@@ -37,7 +53,8 @@ export default function ProspectDetail() {
   };
 
   if (!data) return <StaffShell>{failure ? <Notice kind="error">{failure}</Notice> : <p className="muted">Loading…</p>}</StaffShell>;
-  const { prospect, enquiries, qualification: q, history, tasks } = data;
+  const { prospect, application, enquiries, qualification: q, history, tasks } = data;
+  const open = !['Enrolled', 'Closed'].includes(prospect.stage);
   const awaiting = prospect.stage === 'Qualification review';
 
   return (
@@ -124,6 +141,8 @@ export default function ProspectDetail() {
         )}
       </section>
 
+      {application && <StaffApplication prospect={prospect} application={application} canDecide={canDecide} onChanged={load} />}
+
       <div className="columns">
         <section className="card">
           <h2>Tasks</h2>
@@ -138,7 +157,7 @@ export default function ProspectDetail() {
         <section className="card">
           <h2>Stage history</h2>
           {history.map((h) => (
-            <div key={h.changed_at + h.to_stage} className="item">
+            <div key={h.id} className="item">
               <strong>{h.from_stage ? `${h.from_stage} → ${h.to_stage}` : `Created in ${h.to_stage}`}</strong>
               {h.closed_reason && <span className="muted"> ({h.closed_reason})</span>}
               <div className="muted small">{formatDateTime(h.changed_at)} · {h.staff_name || h.changed_by_type}</div>
@@ -146,6 +165,20 @@ export default function ProspectDetail() {
           ))}
         </section>
       </div>
+
+      {open && canDecide && (
+        <section className="card">
+          <h2>Close this record</h2>
+          <p className="muted">Use this when the student tells you they are withdrawing, or cannot be reached.</p>
+          <div className="row wrap">
+            <select aria-label="Reason for closing" value={closeReason} onChange={(e) => setCloseReason(e.target.value)} className="inline">
+              <option>Withdrawn</option>
+              <option>No response</option>
+            </select>
+            <button type="button" className="danger" disabled={busy} onClick={closeRecord}>Close record</button>
+          </div>
+        </section>
+      )}
     </StaffShell>
   );
 }

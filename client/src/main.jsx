@@ -9,6 +9,7 @@ import Portal from './pages/Portal.jsx';
 import StaffDashboard from './pages/StaffDashboard.jsx';
 import ProspectDetail from './pages/ProspectDetail.jsx';
 import EmailLog from './pages/EmailLog.jsx';
+import Reports from './pages/Reports.jsx';
 import './styles.css';
 
 // Client-side guard for convenience only: the API checks every request itself.
@@ -26,6 +27,7 @@ createRoot(document.getElementById('root')).render(
         <Route path="/staff/login" element={<Login kind="staff" />} />
         <Route path="/staff" element={staff(<StaffDashboard />)} />
         <Route path="/staff/prospects/:id" element={staff(<ProspectDetail />)} />
+        <Route path="/staff/reports" element={staff(<Reports />)} />
         <Route path="/staff/emails" element={staff(<EmailLog />)} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

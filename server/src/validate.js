@@ -138,3 +138,64 @@ export function validateQualification(body = {}, { requireAll }) {
 
   return { errors, value };
 }
+
+const STUDY_MODES = ['On campus', 'Online', 'Blended'];
+
+/** Application form (step 5). requireAll = false when saving a draft. */
+export function validateApplication(body = {}, { requireAll }) {
+  const errors = {};
+  const value = {
+    date_of_birth: text(body.date_of_birth) || null,
+    nationality: text(body.nationality) || null,
+    emergency_contact_name: text(body.emergency_contact_name) || null,
+    emergency_contact_phone: text(body.emergency_contact_phone).replace(/[\s\-()]/g, '') || null,
+    study_mode: text(body.study_mode) || null,
+    intake_id: text(body.intake_id) || null,
+  };
+
+  if (value.date_of_birth) {
+    const dob = new Date(`${value.date_of_birth}T00:00:00Z`);
+    const years = (Date.now() - dob.getTime()) / (365.25 * 864e5);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value.date_of_birth) || Number.isNaN(dob.getTime())) {
+      errors.date_of_birth = 'Enter a valid date.';
+    } else if (years < 16) {
+      errors.date_of_birth = 'You must be at least 16 to apply.';
+    } else if (years > 100) {
+      errors.date_of_birth = 'Check the year of your date of birth.';
+    }
+  } else if (requireAll) {
+    errors.date_of_birth = 'Enter your date of birth.';
+  }
+
+  if (value.nationality && (value.nationality.length < 2 || value.nationality.length > 60)) {
+    errors.nationality = 'Nationality must be 2 to 60 characters.';
+  } else if (requireAll && !value.nationality) {
+    errors.nationality = 'Enter your nationality.';
+  }
+
+  if (value.emergency_contact_name && (value.emergency_contact_name.length < 2 || value.emergency_contact_name.length > 100)) {
+    errors.emergency_contact_name = 'Name must be 2 to 100 characters.';
+  } else if (requireAll && !value.emergency_contact_name) {
+    errors.emergency_contact_name = 'Enter an emergency contact.';
+  }
+
+  if (value.emergency_contact_phone && !/^\+?\d{8,15}$/.test(value.emergency_contact_phone)) {
+    errors.emergency_contact_phone = 'Enter a valid phone number (8 to 15 digits).';
+  } else if (requireAll && !value.emergency_contact_phone) {
+    errors.emergency_contact_phone = "Enter your emergency contact's phone number.";
+  }
+
+  if (value.study_mode && !STUDY_MODES.includes(value.study_mode)) {
+    errors.study_mode = 'Select a study mode from the list.';
+  } else if (requireAll && !value.study_mode) {
+    errors.study_mode = 'Select a study mode.';
+  }
+
+  if (value.intake_id && !isUuid(value.intake_id)) {
+    errors.intake_id = 'Select an intake.';
+  } else if (requireAll && !value.intake_id) {
+    errors.intake_id = 'Select an intake.';
+  }
+
+  return { errors, value };
+}

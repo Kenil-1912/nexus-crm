@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, formatDate, session } from '../api.js';
 import { Field, Notice, PublicShell } from '../ui.jsx';
+import ApplicationSection from './ApplicationSection.jsx';
 
 const STEPS = ['Enquiry', 'Qualification review', 'Qualified', 'Application', 'Offer', 'Enrolled'];
 const STEP_LABELS = { 'Qualification review': 'Review' };
@@ -10,9 +11,17 @@ const FIELDS = ['highest_qualification', 'institution', 'year_completed', 'resul
 
 const STATUS_TEXT = {
   'Qualification review': ['We are reviewing your details', 'A member of our team will be in touch within 2 working days.'],
-  'Qualified': ['You meet the entry requirements', 'The application form will open here next. We will email you when it is ready.'],
   'Closed': ['Your enquiry is closed', 'If your circumstances change, you are welcome to send a new enquiry.'],
 };
+const CLOSED_TEXT = {
+  'Not eligible': 'You do not meet the entry requirements for this program at the moment.',
+  'Application rejected': 'We were unable to offer you a place this time.',
+  'Offer declined': 'You declined your offer.',
+  'Offer lapsed': 'Your offer was not accepted before its deadline.',
+  'Withdrawn': 'You withdrew your enquiry.',
+  'No response': 'We closed it because we had not heard from you.',
+};
+const APPLICATION_STAGES = ['Qualified', 'Application', 'Offer', 'Enrolled'];
 
 export default function Portal() {
   const navigate = useNavigate();
@@ -33,6 +42,15 @@ export default function Portal() {
     setErrors((e) => ({ ...e, [name]: undefined }));
   };
   const logout = () => { session.clear('student'); navigate('/'); };
+  const withdraw = async () => {
+    if (!window.confirm('Withdraw your enquiry? This closes it and cannot be undone.')) return;
+    try {
+      await api('/student/withdraw', { method: 'POST', kind: 'student' });
+    } catch (err) {
+      setNotice({ kind: 'error', text: err.message });
+    }
+    await load();
+  };
 
   const send = async (submit) => {
     setBusy(true);
@@ -83,9 +101,11 @@ export default function Portal() {
       {status && (
         <div className="card center">
           <h2>{status[0]}</h2>
-          <p className="muted">{status[1]}</p>
+          <p className="muted">{closed && CLOSED_TEXT[prospect.closed_reason] ? `${CLOSED_TEXT[prospect.closed_reason]} ` : ''}{status[1]}</p>
         </div>
       )}
+
+      {APPLICATION_STAGES.includes(prospect.stage) && <ApplicationSection stage={prospect.stage} onChanged={load} />}
 
       {prospect.stage === 'Enquiry' && (
         <form className="card" onSubmit={(e) => { e.preventDefault(); send(true); }} noValidate>
@@ -143,6 +163,12 @@ export default function Portal() {
             <button type="button" className="secondary" disabled={busy} onClick={() => send(false)}>Save draft</button>
           </div>
         </form>
+      )}
+
+      {!closed && prospect.stage !== 'Enrolled' && (
+        <p className="muted small center-text">
+          Changed your mind? <button type="button" className="link" onClick={withdraw}>Withdraw my enquiry</button>
+        </p>
       )}
     </PublicShell>
   );

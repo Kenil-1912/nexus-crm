@@ -1,7 +1,8 @@
--- Nexus CRM schema (steps 1 to 4: enquiry -> qualification decision)
+-- Nexus CRM schema (enquiry -> enrolment)
 -- Safe to re-run: drops and recreates everything.
 
-DROP TABLE IF EXISTS email_log, task, audit_log, stage_history, application,
+DROP TABLE IF EXISTS email_log, task, audit_log, stage_history, enrolment, document,
+  program_document_type, application,
   qualification, signup_token, enquiry, prospect, student_user, intake,
   program, staff_user CASCADE;
 
@@ -110,7 +111,55 @@ CREATE TABLE application (
   status         TEXT NOT NULL DEFAULT 'Draft' CHECK (status IN
     ('Draft', 'Submitted', 'Under review', 'Accepted', 'Rejected', 'Withdrawn')),
   submitted_date TIMESTAMPTZ,
-  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- enrolment details, filled in by the student (step 5)
+  date_of_birth           DATE,
+  nationality             TEXT,
+  emergency_contact_name  TEXT,
+  emergency_contact_phone TEXT,
+  study_mode              TEXT CHECK (study_mode IN ('On campus', 'Online', 'Blended')),
+  -- staff decision and offer (step 6)
+  decision_by      UUID REFERENCES staff_user(id),
+  decision_note    TEXT,
+  decided_at       TIMESTAMPTZ,
+  offer_expires_at TIMESTAMPTZ
+);
+CREATE INDEX application_prospect_idx ON application (prospect_id, created_at);
+
+-- The document checklist for each program.
+CREATE TABLE program_document_type (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  program_id    UUID NOT NULL REFERENCES program(id),
+  document_type TEXT NOT NULL,
+  is_required   BOOLEAN NOT NULL DEFAULT TRUE,
+  UNIQUE (program_id, document_type)
+);
+
+-- Uploaded files and issued letters. File content is kept in the database so
+-- a document and its record can never get out of step.
+CREATE TABLE document (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  application_id   UUID NOT NULL REFERENCES application(id),
+  document_type    TEXT NOT NULL,
+  issued           BOOLEAN NOT NULL DEFAULT FALSE, -- TRUE = created by RIC (offer letter)
+  file_name        TEXT NOT NULL,
+  mime_type        TEXT NOT NULL CHECK (mime_type IN ('application/pdf', 'image/jpeg', 'image/png')),
+  size_bytes       INT NOT NULL,
+  content          BYTEA NOT NULL,
+  status           TEXT NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending', 'Verified', 'Rejected')),
+  rejection_reason TEXT,
+  uploaded_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  verified_by      UUID REFERENCES staff_user(id),
+  verified_at      TIMESTAMPTZ,
+  CHECK ((status = 'Rejected') = (rejection_reason IS NOT NULL))
+);
+-- One current upload per document type per application.
+CREATE UNIQUE INDEX document_one_per_type ON document (application_id, document_type) WHERE NOT issued;
+
+CREATE TABLE enrolment (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  application_id UUID NOT NULL UNIQUE REFERENCES application(id),
+  enrolment_date TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- One row per stage change. Source for all pipeline reports.
@@ -122,7 +171,8 @@ CREATE TABLE stage_history (
   closed_reason   TEXT,
   changed_by_type TEXT NOT NULL CHECK (changed_by_type IN ('student', 'staff', 'system')),
   changed_by_id   UUID,
-  changed_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+  -- clock_timestamp(), not now(): two changes in one transaction keep their order
+  changed_at      TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
 );
 CREATE INDEX stage_history_prospect_idx ON stage_history (prospect_id, changed_at);
 
@@ -144,7 +194,8 @@ CREATE TABLE task (
   due_at            TIMESTAMPTZ NOT NULL,
   status            TEXT NOT NULL DEFAULT 'Open' CHECK (status IN ('Open', 'Done')),
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-  completed_at      TIMESTAMPTZ
+  completed_at      TIMESTAMPTZ,
+  escalated_at      TIMESTAMPTZ
 );
 
 CREATE TABLE email_log (

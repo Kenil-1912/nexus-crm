@@ -7,7 +7,8 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "db:reset": "node db/reset.js",
-    "test": "node --test test/*.test.js"
+    "jobs": "node -e \"import('./src/jobs.js').then(async (m) => { console.log(await m.runDailyJobs()); process.exit(0); })\"",
+    "test": "node --test --test-concurrency=1 test/*.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -16,6 +17,7 @@
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
     "nodemailer": "^6.9.16",
+    "pdfkit": "^0.20.2",
     "pg": "^8.13.1"
   }
 }

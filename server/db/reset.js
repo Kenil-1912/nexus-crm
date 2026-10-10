@@ -32,6 +32,11 @@ for (const [name, discipline, level, lang] of programs) {
      ($1, 'February 2027', '2027-02-22'), ($1, 'July 2027', '2027-07-19')`,
     [rows[0].id],
   );
+  await pool.query(
+    `INSERT INTO program_document_type (program_id, document_type) VALUES
+     ($1, 'Passport or photo ID'), ($1, 'Academic transcript'), ($1, 'English test result')`,
+    [rows[0].id],
+  );
 }
 
 console.log('Database reset. Staff logins: sarah@ric.test, michael@ric.test, manager@ric.test / Password123!');

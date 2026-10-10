@@ -6,6 +6,7 @@ import { requireAuth, requireRole } from '../auth.js';
 import { HttpError, audit, changeStage } from '../pipeline.js';
 import { isUuid } from '../validate.js';
 import { sendEmail, smtpConfigured, templates } from '../mailer.js';
+import { allRequiredVerified, currentApplication, documentChecklist } from '../application.js';
 
 const router = Router();
 router.use(requireAuth('staff'));
@@ -64,14 +65,36 @@ router.get('/prospects/:id', wrap(async (req, res) => {
        LEFT JOIN intake i ON i.id = q.intake_id LEFT JOIN staff_user r ON r.id = q.reviewed_by
        WHERE q.prospect_id = $1`, [id]),
     query(
-      `SELECT h.from_stage, h.to_stage, h.closed_reason, h.changed_by_type, h.changed_at, s.full_name AS staff_name
+      `SELECT h.id, h.from_stage, h.to_stage, h.closed_reason, h.changed_by_type, h.changed_at, s.full_name AS staff_name
        FROM stage_history h LEFT JOIN staff_user s ON h.changed_by_type = 'staff' AND s.id = h.changed_by_id
        WHERE h.prospect_id = $1 ORDER BY h.changed_at`, [id]),
     query(`SELECT id, type, due_at, status, due_at < now() AND status = 'Open' AS overdue FROM task WHERE prospect_id = $1 ORDER BY created_at DESC`, [id]),
   ]);
 
+  // Application, documents, offer letter and enrolment (steps 5 to 7).
+  let application = null;
+  const current = await currentApplication({ query }, id);
+  if (current) {
+    const [extra, checklist, letter, enrolment] = await Promise.all([
+      query(
+        `SELECT g.name AS program, i.name AS intake, s.full_name AS decision_by_name
+         FROM program g LEFT JOIN intake i ON i.id = $2 LEFT JOIN staff_user s ON s.id = $3 WHERE g.id = $1`,
+        [current.program_id, current.intake_id, current.decision_by]),
+      documentChecklist({ query }, current),
+      query('SELECT id, file_name FROM document WHERE application_id = $1 AND issued ORDER BY uploaded_at DESC LIMIT 1', [current.id]),
+      query('SELECT enrolment_date FROM enrolment WHERE application_id = $1', [current.id]),
+    ]);
+    application = {
+      ...current, ...extra.rows[0], checklist,
+      ready_for_decision: allRequiredVerified(checklist),
+      offer_letter: letter.rows[0] ?? null,
+      enrolment: enrolment.rows[0] ?? null,
+    };
+  }
+
   res.json({
     prospect,
+    application,
     enquiries: enquiries.rows,
     qualification: qualification.rows[0] ?? null,
     history: history.rows,
@@ -124,7 +147,7 @@ router.post('/prospects/:id/qualification-decision', requireRole('recruiter'), w
     );
     await client.query(
       `UPDATE task SET status = 'Done', completed_at = now()
-       WHERE prospect_id = $1 AND status = 'Open' AND type IN ('Review qualification', 'Confirm not eligible')`,
+       WHERE prospect_id = $1 AND status = 'Open'`,
       [id],
     );
     await audit(client, { prospectId: id, actorType: 'staff', actorId: req.user.sub, action: `Qualification ${decision === 'approve' ? 'approved' : 'rejected'}`, detail: { note: note || null } });

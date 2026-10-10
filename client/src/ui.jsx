@@ -51,6 +51,7 @@ export function StaffShell({ children }) {
         <Link to="/staff" className="brand">RIC <span>Nexus CRM</span></Link>
         <nav>
           <NavLink to="/staff" end>Dashboard</NavLink>
+          <NavLink to="/staff/reports">Reports</NavLink>
           <NavLink to="/staff/emails">Email log</NavLink>
           <span className="who">{staff?.full_name} ({staff?.role})</span>
           <button type="button" className="link" onClick={logout}>Log out</button>
